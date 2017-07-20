@@ -257,7 +257,8 @@ The function name is the second group in the regexp.")
                     (not res)
                     (re-search-forward pattern limit t))
 
-              (let* ((string-delimiter (nth 3 (syntax-ppss)))
+              (let* ((string-delimiter-pos (nth 8 (syntax-ppss)))
+                     (string-delimiter (char-after string-delimiter-pos))
                      (escaped-p (eq (char-before (match-beginning 0))
                                     ?\\)))
                 (when (and (groovy--in-string-p)
@@ -305,8 +306,13 @@ The function name is the second group in the regexp.")
   ;; http://groovy-lang.org/syntax.html#_shebang_line
   (defconst groovy-shebang-regex
     (rx buffer-start "#"))
-  (defconst groovy-triple-quoted-string-regex
+  (defconst groovy-triple-double-quoted-string-regex
     (rx "\"\"\""))
+  (defconst groovy-triple-single-quoted-string-regex
+    (rx "'''"))
+  (defconst groovy-slashy-open-regex
+    ;; /foo/ is a slashy-string, but // is not.
+    (rx "/" (not (any "/"))))
   (defconst groovy-dollar-slashy-open-regex
     (rx "$/"))
   (defconst groovy-dollar-slashy-close-regex
@@ -314,6 +320,7 @@ The function name is the second group in the regexp.")
 
 (defun groovy-stringify-triple-quote ()
   "Put `syntax-table' property on triple-quoted strings."
+  ;; This applies to both ''' and """
   (let* ((string-end-pos (point))
          (string-start-pos (- string-end-pos 3))
          (ppss (prog2
@@ -323,27 +330,29 @@ The function name is the second group in the regexp.")
     (unless (nth 4 ppss) ;; not inside comment
       (if (nth 8 ppss)
           ;; We're in a string, so this must be the closing triple-quote.
-          ;; Put | on the last " character.
+          ;; Put | on the last ' or " character.
           (put-text-property (1- string-end-pos) string-end-pos
                              'syntax-table (string-to-syntax "|"))
         ;; We're not in a string, so this is the opening triple-quote.
-        ;; Put | on the first " character.
+        ;; Put | on the first ' or " character.
         (put-text-property string-start-pos (1+ string-start-pos)
                            'syntax-table (string-to-syntax "|"))))))
 
 (defun groovy--comment-p (pos)
   "Return t if POS is in a comment."
-  (nth 4 (syntax-ppss pos)))
+  (save-excursion
+    (nth 4 (syntax-ppss pos))))
 
 (defun groovy-stringify-slashy-string ()
-  "Put `syntax-table' property on slashy-quoted strings."
+  "Put `syntax-table' property on slashy-quoted strings (strings
+of the form /foo/)."
+  ;; We match to characters ?/ ?something, so move backwards so point
+  ;; is on the /.
+  (backward-char 1)
   (let* ((slash-pos (point))
-         ;; Look at the syntax one char forward: if we're in a
-         ;; comment, then this is a // not a /foo/.
-         (singleline-comment (prog2
-                                 (forward-char 1)
-                                 (groovy--comment-p (point))
-                               (backward-char 1)))
+         ;; Look at the previous char: // is a comment, not an empty
+         ;; slashy-string.
+         (singleline-comment (eq (char-before (1- (point))) ?/))
          ;; Look at this syntax on the previous char: if we're on a /*
          ;; or a */ this isn't a slashy-string.
          (multiline-comment (prog2
@@ -394,7 +403,9 @@ dollar-slashy-quoted strings."
    ;; comment.
    (groovy-shebang-regex
     (0 "< b"))
-   (groovy-triple-quoted-string-regex
+   (groovy-triple-double-quoted-string-regex
+    (0 (ignore (groovy-stringify-triple-quote))))
+   (groovy-triple-single-quoted-string-regex
     (0 (ignore (groovy-stringify-triple-quote))))
    ;; http://groovy-lang.org/syntax.html#_dollar_slashy_string
    (groovy-dollar-slashy-open-regex
@@ -402,7 +413,7 @@ dollar-slashy-quoted strings."
    (groovy-dollar-slashy-close-regex
     (0 (ignore (groovy-stringify-dollar-slashy-close))))
    ;; http://groovy-lang.org/syntax.html#_slashy_string
-   ("/"
+   (groovy-slashy-open-regex
     (0 (ignore (groovy-stringify-slashy-string))))))
 
 (defgroup groovy nil
@@ -418,7 +429,7 @@ dollar-slashy-quoted strings."
   "Does STR end with an infix operator?"
   (string-match-p
    (rx
-    symbol-start
+    (or symbol-end space)
     ;; http://docs.groovy-lang.org/next/html/documentation/core-operators.html
     (or "+" "-" "*" "/" "%" "**"
         "=" "+=" "-=" "*=" "/=" "%=" "**="
@@ -511,7 +522,9 @@ Then this function returns (\"def\" \"if\" \"switch\")."
         (save-excursion
           ;; Try to go back one line.
           (when (zerop (forward-line -1))
-            (setq prev-line (buffer-substring (point) (line-end-position)))))
+            ;; Ignore the previous line if it's a comment.
+            (unless (groovy--comment-p (line-end-position))
+              (setq prev-line (buffer-substring (point) (line-end-position))))))
         (when (and prev-line
                    (groovy--ends-with-infix-p prev-line)
                    (not (s-matches-p groovy--case-regexp prev-line)))
