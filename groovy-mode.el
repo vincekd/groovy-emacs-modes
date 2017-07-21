@@ -371,6 +371,7 @@ of the form /foo/)."
                                'syntax-table (string-to-syntax "|")))
         ;; We're not in a string, so this is the opening / or division
         (let ((str (buffer-substring-no-properties (line-beginning-position) slash-pos)))
+          ;; test if operator precedes slash. if so, slashy-string, otherwise division and ignore
           (when (string-match
                  (rx
                   (or bol
@@ -428,8 +429,6 @@ dollar-slashy-quoted strings."
    ;; http://groovy-lang.org/syntax.html#_slashy_string
    (groovy-slashy-open-regex
     (0 (ignore (groovy-stringify-slashy-string))))))
-   ;; (groovy-slashy-close-regex
-   ;;  (0 (ignore (groovy-stringify-slashy-string))))))
 
 (defgroup groovy nil
   "A Groovy major mode."
