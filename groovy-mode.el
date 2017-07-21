@@ -313,6 +313,7 @@ The function name is the second group in the regexp.")
   (defconst groovy-slashy-open-regex
     ;; /foo/ is a slashy-string, but // is not.
     (rx "/" (not (any "/"))))
+
   (defconst groovy-dollar-slashy-open-regex
     (rx "$/"))
   (defconst groovy-dollar-slashy-close-regex
@@ -360,6 +361,7 @@ of the form /foo/)."
                                 (groovy--comment-p (point))
                               (forward-char 1)))
          (string-open-pos (nth 8 (syntax-ppss))))
+
     (unless (or singleline-comment multiline-comment)
       (if string-open-pos
           ;; If we're in a string, that was opened with /, then this
@@ -367,9 +369,20 @@ of the form /foo/)."
           (when (eq (char-after string-open-pos) ?/)
             (put-text-property (1- slash-pos) slash-pos
                                'syntax-table (string-to-syntax "|")))
-        ;; We're not in a string, so this is the opening /.
-        (put-text-property (1- slash-pos) slash-pos
-                           'syntax-table (string-to-syntax "|"))))))
+        ;; We're not in a string, so this is the opening / or division
+        (let ((str (buffer-substring-no-properties (line-beginning-position) slash-pos)))
+          (when (string-match
+                 (rx
+                  (or bol
+                      (or "+" "-" "=" "+=" "-=" "==" "!="
+                          "<" "<=" ">" ">=" "&&" "!!" "?" "?:" ":"
+                          "=~" "==~" "<=>" "("))
+                  (0+ whitespace)
+                  "/"
+                  eol)
+                 str)
+            (put-text-property (1- slash-pos) slash-pos
+                               'syntax-table (string-to-syntax "|"))))))))
 
 (defun groovy-stringify-dollar-slashy-open ()
   "Put `syntax-table' property on the opening $/ of
@@ -415,6 +428,8 @@ dollar-slashy-quoted strings."
    ;; http://groovy-lang.org/syntax.html#_slashy_string
    (groovy-slashy-open-regex
     (0 (ignore (groovy-stringify-slashy-string))))))
+   ;; (groovy-slashy-close-regex
+   ;;  (0 (ignore (groovy-stringify-slashy-string))))))
 
 (defgroup groovy nil
   "A Groovy major mode."
