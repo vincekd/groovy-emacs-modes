@@ -168,7 +168,12 @@ The function name is the second group in the regexp.")
   "Match 'def foo' or 'private Type foo'. The name is the second group.")
 
 (defsubst groovy--in-string-p ()
+  "Return t if (point) is in a string."
   (nth 3 (syntax-ppss)))
+(defsubst groovy--in-string-at-p (pos)
+  "Return t if POS is in a string."
+  (save-excursion
+    (nth 3 (syntax-ppss pos))))
 
 (defvar groovy-font-lock-keywords
   `((,(regexp-opt
@@ -535,16 +540,24 @@ Then this function returns (\"def\" \"if\" \"switch\")."
      ;; Indent according to the number of parens.
      (t
       (let ((indent-level current-paren-depth)
-            prev-line)
+            prev-line
+            end-slashy-string)
         ;; If the previous line ended `foo +` then this line should be
         ;; indented one more level.
         (save-excursion
           ;; Try to go back one line.
           (when (zerop (forward-line -1))
-            ;; Ignore the previous line if it's a comment.
-            (unless (groovy--comment-p (line-end-position))
-              (setq prev-line (buffer-substring (point) (line-end-position))))))
+            ;; Ignore the previous line if it's a comment or end slashy-string
+            (let ((line-end (line-end-position)))
+              (message "line-end-pos: %s" line-end)
+              (unless (groovy--comment-p line-end)
+                (setq prev-line (buffer-substring (point) (line-end-position))))
+              ;; check if the last thing is a slashy-string end
+              (setq end-slashy-string (and
+                                       (eq (char-before line-end) ?/)
+                                       (groovy--in-string-at-p (- line-end 1)))))))
         (when (and prev-line
+                   (not end-slashy-string)
                    (groovy--ends-with-infix-p prev-line)
                    (not (s-matches-p groovy--case-regexp prev-line)))
           (setq indent-level (1+ indent-level)))
