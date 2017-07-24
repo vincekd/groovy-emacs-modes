@@ -312,7 +312,7 @@ The function name is the second group in the regexp.")
     (rx "'''"))
   (defconst groovy-slashy-open-regex
     ;; /foo/ is a slashy-string, but // is not.
-    (rx "/" (not (any "/"))))
+    (rx "/" (not (any "/" "*"))))
 
   (defconst groovy-dollar-slashy-open-regex
     (rx "$/"))
@@ -349,47 +349,51 @@ The function name is the second group in the regexp.")
 of the form /foo/)."
   ;; We match to characters ?/ ?something, so move backwards so point
   ;; is on the /.
-  (backward-char 1)
-  (let* ((slash-pos (point))
-         ;; Look at the previous char: // is a comment, not an empty
-         ;; slashy-string.
-         (singleline-comment (eq (char-before (1- (point))) ?/))
-         ;; Look at this syntax on the previous char: if we're on a /*
-         ;; or a */ this isn't a slashy-string.
-         (multiline-comment (prog2
-                                (backward-char 1)
-                                (groovy--comment-p (point))
-                              (forward-char 1)))
-         (string-open-pos (nth 8 (syntax-ppss))))
+  (save-excursion
+    (backward-char 1)
+    (let* ((slash-pos (point))
+           ;; Look at the previous char: // is a comment, not an empty
+           ;; slashy-string.
+           (singleline-comment (eq (char-before (1- (point))) ?/))
+           ;; Look at this syntax on the previous char: if we're on a /*
+           ;; or a */ this isn't a slashy-string.
+           (multiline-comment (prog2
+                                  (backward-char 1)
+                                  (groovy--comment-p (point))
+                                (forward-char 1)
+                                ))
+           (string-open-pos (nth 8 (syntax-ppss))))
 
-    (unless (or singleline-comment multiline-comment)
-      (if string-open-pos
-          ;; If we're in a string, that was opened with /, then this
-          ;; is the closing /. This prevents confusion with """ /* """
-          (when (eq (char-after string-open-pos) ?/)
-            (put-text-property (1- slash-pos) slash-pos
-                               'syntax-table (string-to-syntax "|")))
-        ;; We're not in a string, so this is the opening / or division
-        (let ((str (buffer-substring-no-properties (line-beginning-position) slash-pos)))
-          ;; test if operator precedes slash. if so, slashy-string, otherwise division and ignore
-          (when (string-match
-                 (rx
-                  (or bol
-                      (or "+" "-" "=" "+=" "-=" "==" "!="
-                          "<" "<=" ">" ">=" "&&" "!!" "?" "?:" ":"
-                          "=~" "==~" "<=>" "("))
-                  (0+ whitespace)
-                  "/"
-                  eol)
-                 str)
-            (put-text-property (1- slash-pos) slash-pos
-                               'syntax-table (string-to-syntax "|"))))))))
+      (unless (or singleline-comment multiline-comment)
+        (if string-open-pos
+            ;; If we're in a string, that was opened with /, then this
+            ;; is the closing /. This prevents confusion with """ /* """
+            (when (eq (char-after string-open-pos) ?/)
+              (put-text-property (1- slash-pos) slash-pos
+                                 'syntax-table (string-to-syntax "|")))
+          ;; We're not in a string, so this is the opening / or division
+          (let ((str (buffer-substring-no-properties (line-beginning-position) slash-pos)))
+            ;; test if operator precedes slash. if so, slashy-string, otherwise division and ignore
+            (when (string-match
+                   (rx
+                    (or bol
+                        (or "+" "-" "=" "+=" "-=" "==" "!="
+                            "<" "<=" ">" ">=" "&&" "!!" "?" "?:" ":"
+                            "=~" "==~" "<=>" "("))
+                    (0+ whitespace)
+                    "/"
+                    eol)
+                   str)
+              (put-text-property (1- slash-pos) slash-pos
+                                 'syntax-table (string-to-syntax "|")))))))))
 
 (defun groovy-stringify-dollar-slashy-open ()
   "Put `syntax-table' property on the opening $/ of
 dollar-slashy-quoted strings."
   (let ((delimiter-end-pos (point)))
-    (unless (or (groovy--comment-p delimiter-end-pos) (groovy--in-string-p))
+    (if (or (groovy--comment-p delimiter-end-pos) (groovy--in-string-p))
+        ;; if not $/ open comment then go back a char so we can test if it's a closing /
+        (backward-char 1)
       ;; Mark the $ in $/ as a generic string delimiter.
       (put-text-property (- delimiter-end-pos 2) (- delimiter-end-pos 1)
                          'syntax-table (string-to-syntax "|")))))
@@ -409,6 +413,7 @@ dollar-slashy-quoted strings."
       ;; Mark the $ in /$ as a generic string delimiter.
       (put-text-property (- delimiter-end-pos 1) delimiter-end-pos
                          'syntax-table (string-to-syntax "|")))))
+
 
 (defconst groovy-syntax-propertize-function
   (syntax-propertize-rules
