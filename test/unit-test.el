@@ -161,7 +161,7 @@ then run BODY."
 (ert-deftest groovy-highlight-interface-keyword ()
   "Highlight interface as annotation or keyword depending on state."
   (with-highlighted-groovy
-   "public @interface() Anno {}"
+   "public @interface Anno {}"
    (search-forward "interface")
    (backward-char 1)
    (should (eq (face-at-point) 'groovy-annotation-face)))
